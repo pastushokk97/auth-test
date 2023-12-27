@@ -18,7 +18,7 @@ export const validUserResponse: UserLoginResponse = {
   email: 'some-email@gmail.com',
   firstname: 'Jack',
   lastname: 'Woody',
-  jwtToken: 'JWT_TOKEN',
+  accessToken: 'JWT_TOKEN',
   refreshToken: 'REFRESH_TOKEN',
 };
 

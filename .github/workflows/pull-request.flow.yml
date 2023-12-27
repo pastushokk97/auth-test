@@ -16,9 +16,13 @@ jobs:
       DATABASE_NAME: ${{ vars.DATABASE_NAME }}
       DATABASE_PORT: ${{ vars.DATABASE_PORT }}
       DATABASE_TYPE: ${{ vars.DATABASE_TYPE }}
-      REDIS_HOST: ${{ vars.REDIS_HOST }}
-      REDIS_PORT: ${{ vars.REDIS_PORT }}
       HASH_SALT: ${{ vars.HASH_SALT }}
+      NODE_ENV: ${{ vars.NODE_ENV }}
+      APPLICATION_PORT: ${{ vars.APPLICATION_PORT }}
+      JWT_SECRET: ${{ vars.JWT_SECRET }}
+      JWT_PRIVATE_KEY: ${{ vars.JWT_PRIVATE_KEY }}
+      JWT_EXPIRES_IN_ACCESS_TOKEN: ${{ vars.JWT_EXPIRES_IN_ACCESS_TOKEN }}
+      JWT_EXPIRES_IN_REFRESH_TOKEN: ${{ vars.JWT_EXPIRES_IN_REFRESH_TOKEN }}
     strategy:
       matrix:
         node-version: [18.x]
@@ -36,15 +40,6 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
-      redis:
-        image: redis:latest
-        env:
-          REDIS_HOST: ${{ vars.REDIS_HOST }}
-          REDIS_PORT: ${{ vars.REDIS_PORT }}
-        ports:
-          - ${{ vars.REDIS_PORT }}:${{ vars.REDIS_PORT }}
-        volumes:
-          - cache:/data
     steps:
       - uses: actions/checkout@v3
       - name: Use Node.js ${{ matrix.node-version }}

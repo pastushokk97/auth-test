@@ -7,10 +7,9 @@
     "src/modules/**/*.ts"
   ],
   "coveragePathIgnorePatterns": [
-    "src/modules/redis",
-    "src/modules/auth",
     ".entity.ts",
-    ".module.ts"
+    ".module.ts",
+    ".repository.ts"
   ],
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"

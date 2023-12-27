@@ -8,6 +8,7 @@ import {
 
 type UsedExceptionStatusCodes =
   | HttpStatus.BAD_REQUEST
+  | HttpStatus.FORBIDDEN
   | HttpStatus.NOT_FOUND
   | HttpStatus.CONFLICT;
 

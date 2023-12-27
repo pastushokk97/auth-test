@@ -38,17 +38,13 @@ export const VALIDATION_ERROR_CONTEXT = {
     errorCode: 10007,
     message: 'User is not found',
   },
-  USER_IS_NOT_UUID: {
+  USER_REFRESH_TOKEN_INVALID: {
     errorCode: 10008,
-    message: 'User id is not uuid',
+    message: 'Refresh token is invalid',
   },
-  USER_EXPIRED_CODE: {
+  USER_UNKNOWN_OR_INVALID_REFRESH_TOKEN: {
     errorCode: 10009,
-    message: 'Invalid code provided, please request a code again',
-  },
-  USER_VERIFICATION_CODE: {
-    errorCode: 10010,
-    message: 'Verification code should be a string with 6 digits',
+    message: 'Unknown or invalid refresh token',
   },
 
   // Auth
@@ -59,6 +55,10 @@ export const VALIDATION_ERROR_CONTEXT = {
   AUTH_JWT_UNAUTHORIZED: {
     errorCode: 11002,
     message: 'User is not authorized',
+  },
+  AUTH_JWT_TOKEN_HAS_BEEN_EXPIRED: {
+    errorCode: 11003,
+    message: 'Token has been expired',
   },
 };
 

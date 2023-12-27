@@ -3,55 +3,39 @@ import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 import { ApiThrowExceptions } from '../../../decorators/throw-exceptions.decorator';
 import { VALIDATION_ERROR_CONTEXT } from '../../../exceptions';
-import { UserGetOneResponse } from '../types/user.type';
 
 const {
   AUTH_JWT_AUTH_HEADER_REQUIRED,
+  USER_REFRESH_TOKEN_INVALID,
+  USER_UNKNOWN_OR_INVALID_REFRESH_TOKEN,
   AUTH_JWT_UNAUTHORIZED,
   AUTH_JWT_TOKEN_HAS_BEEN_EXPIRED,
-  USER_NOT_FOUND,
 } = VALIDATION_ERROR_CONTEXT;
 
-export const validUserResponse: UserGetOneResponse = {
-  userId: '58ebb9bf-a955-429b-97a4-8751a7dbc155',
-  firstname: 'Jack',
-  lastname: 'Woody',
-  email: 'jack-woody@gmail.com',
-  phone: '+380677777777',
-};
-
-export function GetOneUserDocumentation() {
+export function RefreshUserTokensDocumentation() {
   return applyDecorators(
     ApiOperation({
-      description: 'Get a user by jwt token',
-      summary: 'Get myself',
+      description: 'Refresh tokens',
+      summary: `Refresh user's tokens by refresh token`,
     }),
     ApiBearerAuth('JWT'),
     ApiResponse({
-      status: HttpStatus.OK,
-      description: 'User was successfully got',
-      content: {
-        'application/json': {
-          examples: {
-            user: {
-              value: validUserResponse,
-            },
-          },
-        },
-      },
+      status: HttpStatus.CREATED,
+      description: 'Tokens were successfully refreshed',
     }),
     ApiThrowExceptions({
+      '400': {
+        errors: [USER_REFRESH_TOKEN_INVALID],
+        description: 'User is not found',
+      },
       '403': {
         errors: [
           AUTH_JWT_AUTH_HEADER_REQUIRED,
           AUTH_JWT_UNAUTHORIZED,
           AUTH_JWT_TOKEN_HAS_BEEN_EXPIRED,
+          USER_UNKNOWN_OR_INVALID_REFRESH_TOKEN,
         ],
         description: 'Please, make sure that you have a valid jwt token',
-      },
-      '404': {
-        errors: [USER_NOT_FOUND],
-        description: 'User is not found',
       },
     }),
   );

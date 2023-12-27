@@ -43,6 +43,9 @@ export class CommonModule {
   configure(consumer: MiddlewareConsumer) {
     consumer
       .apply(AuthMiddleware)
-      .forRoutes({ path: 'api/user', method: RequestMethod.DELETE });
+      .forRoutes(
+        { path: 'api/user/me', method: RequestMethod.GET },
+        { path: 'api/user/sign-out', method: RequestMethod.POST },
+      );
   }
 }

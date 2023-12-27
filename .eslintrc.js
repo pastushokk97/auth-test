@@ -27,6 +27,7 @@ module.exports = {
     'import/no-extraneous-dependencies': 'off',
     '@typescript-eslint/no-explicit-any': 'off',
     '@typescript-eslint/dot-notation': 'off',
+    '@typescript-eslint/no-var-requires': 'off',
     "import/order": [
       "error",
       {

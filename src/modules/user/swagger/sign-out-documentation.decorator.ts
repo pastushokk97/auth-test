@@ -3,7 +3,6 @@ import { ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 
 import { ApiThrowExceptions } from '../../../decorators/throw-exceptions.decorator';
 import { VALIDATION_ERROR_CONTEXT } from '../../../exceptions';
-import { UserGetOneResponse } from '../types/user.type';
 
 const {
   AUTH_JWT_AUTH_HEADER_REQUIRED,
@@ -12,33 +11,16 @@ const {
   USER_NOT_FOUND,
 } = VALIDATION_ERROR_CONTEXT;
 
-export const validUserResponse: UserGetOneResponse = {
-  userId: '58ebb9bf-a955-429b-97a4-8751a7dbc155',
-  firstname: 'Jack',
-  lastname: 'Woody',
-  email: 'jack-woody@gmail.com',
-  phone: '+380677777777',
-};
-
-export function GetOneUserDocumentation() {
+export function SignOutUserDocumentation() {
   return applyDecorators(
     ApiOperation({
-      description: 'Get a user by jwt token',
-      summary: 'Get myself',
+      description: 'Sign out user',
+      summary: 'Sign out',
     }),
     ApiBearerAuth('JWT'),
     ApiResponse({
-      status: HttpStatus.OK,
-      description: 'User was successfully got',
-      content: {
-        'application/json': {
-          examples: {
-            user: {
-              value: validUserResponse,
-            },
-          },
-        },
-      },
+      status: HttpStatus.CREATED,
+      description: 'User was successfully signed out',
     }),
     ApiThrowExceptions({
       '403': {

@@ -1,21 +1,9 @@
 import * as path from 'path';
 
 import { config } from 'dotenv';
-import { DataSource, DataSourceOptions } from "typeorm";
+import { DataSource, DataSourceOptions } from 'typeorm';
 
 config();
-
-const sslConfiguration =
-  process.env.NODE_ENV === 'prod'
-    ? {
-        ssl: false,
-        extra: {
-          ssl: {
-            rejectUnauthorized: true,
-          },
-        },
-      }
-    : null;
 
 export const getDataSourceConfig = ({ logging }): DataSourceOptions => ({
   type: 'postgres',
@@ -30,7 +18,6 @@ export const getDataSourceConfig = ({ logging }): DataSourceOptions => ({
   logger: 'advanced-console',
   logging,
   migrationsTableName: 'migrations',
-  ...sslConfiguration,
 });
 
 export const connectionDataSource = new DataSource(

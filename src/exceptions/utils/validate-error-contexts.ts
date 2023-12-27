@@ -17,7 +17,7 @@ export function validateErrorContexts(
 
   Object.values(errorContext)
     .map(({ errorCode }) => errorCode)
-    .forEach((code, i, array) => {
+    .forEach((code, _, array) => {
       const isInvalidCodeType = typeof code !== 'number';
       const isInvalidCodeFirstDigit = !String(code).startsWith(firstDigit);
       const isInvalidCodeLength = String(code).length !== 5;

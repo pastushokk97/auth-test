@@ -1,101 +1,47 @@
-import {
-  Injectable,
-  Logger,
-  OnModuleDestroy,
-  OnModuleInit,
-} from '@nestjs/common';
-import { RedisClientType } from 'redis';
-import { DataSource } from 'typeorm';
+import { Injectable, Logger } from '@nestjs/common';
 
 import {
-  ConflictException,
+  ForbiddenException,
   VALIDATION_ERROR_CONTEXT,
 } from '../../../exceptions';
 import { hashPassword } from '../../../utils/hash-password';
-import {
-  useCommitTransaction,
-  useReleaseTransaction,
-  useRollbackTransaction,
-  useTransaction,
-} from '../../../utils/use-transactions';
-import { AuthService } from '../../auth/auth.service';
-import { RedisClient } from '../../redis/redis-client.service';
-import { IdentitiesRepository } from '../repositories/identity.repository';
+import { AuthService } from '../../auth/services/auth.service';
+import { GetUserDataResponse, JwtTokens } from '../../auth/types/auth.types';
 import { UsersRepository } from '../repositories/user.repository';
 import {
   UserCreateOptions,
-  UserDeleteOptions,
   UserGetOneResponse,
   UserLoginOptions,
   UserLoginResponse,
-  UserVerifyOptions,
 } from '../types/user.type';
 
 import { UserValidatorService } from './user-validator.service';
 
 @Injectable()
-export class UserService implements OnModuleInit, OnModuleDestroy {
+export class UserService {
   private readonly logger = new Logger(UserService.name);
 
-  private cache: RedisClientType;
-
   constructor(
-    private readonly dataSource: DataSource,
     private readonly usersRepository: UsersRepository,
     private readonly userValidatorService: UserValidatorService,
-    private readonly redisClient: RedisClient,
     private readonly authService: AuthService,
-    private readonly identitiesRepository: IdentitiesRepository,
   ) {}
 
-  async onModuleInit(): Promise<void> {
-    this.cache = await this.redisClient.getClient();
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    await this.redisClient.closeConnection();
-  }
-
   async signUp(options: UserCreateOptions): Promise<void> {
-    let cognitoUserId: string = '';
-    const transaction = await useTransaction(this.dataSource);
     try {
       await this.userValidatorService.validateUserOnCreate(options);
 
       const { password, ...user } = options;
       const hash = await hashPassword(password);
 
-      const cognitoUser = await this.authService.signUp({
-        ...options,
-        password,
-      });
-
-      cognitoUserId = cognitoUser.userSub;
-
-      const identity = await this.identitiesRepository.createOne(
-        { cognitoUserId: cognitoUserId },
-        transaction.manager,
-      );
-      await this.usersRepository.createOne(
-        { ...user, identityId: identity.identityId, password: hash },
-        transaction.manager,
-      );
-
-      await useCommitTransaction(transaction);
+      await this.usersRepository.createOne({ ...user, password: hash });
     } catch (error) {
-      await this.authService.deleteUser(cognitoUserId);
-      await useRollbackTransaction(transaction);
-
       throw error;
-    } finally {
-      await useReleaseTransaction(transaction);
     }
   }
 
   async login(options: UserLoginOptions): Promise<UserLoginResponse> {
     await this.userValidatorService.validateUserOnLogin(options);
-
-    const cognitoUser = await this.authService.authenticateUser(options);
 
     const user = await this.usersRepository.findOne({
       select: ['userId', 'email', 'firstname', 'lastname'],
@@ -104,71 +50,91 @@ export class UserService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    const jwtToken = cognitoUser.getAccessToken().getJwtToken();
-    const refreshToken = cognitoUser.getRefreshToken().getToken();
+    const { accessToken, refreshToken } = await this.provideJwtTokens({
+      userId: user.userId,
+      email: user.email,
+    });
 
     return {
       ...user,
-      jwtToken,
+      accessToken,
       refreshToken,
     };
   }
 
-  async verifyUser(options: UserVerifyOptions) {
-    try {
-      await this.authService.verifyUser(options);
+  async refreshToken(token: string): Promise<JwtTokens> {
+    const decode = await this.authService.authenticate(token);
 
-      await this.usersRepository.update(
-        { email: options.email },
-        { isEmailVerified: true },
+    const user = await this.usersRepository.findOne({
+      where: {
+        email: decode.email,
+        refreshToken: token,
+      },
+    });
+
+    if (!user) {
+      throw new ForbiddenException(
+        VALIDATION_ERROR_CONTEXT.USER_UNKNOWN_OR_INVALID_REFRESH_TOKEN,
       );
-    } catch {
-      throw new ConflictException(VALIDATION_ERROR_CONTEXT.USER_EXPIRED_CODE);
     }
+
+    return this.provideJwtTokens({
+      userId: user.userId,
+      email: user.email,
+    });
   }
 
-  async getOne(userId: string): Promise<UserGetOneResponse> {
+  async signOut(options: GetUserDataResponse): Promise<void> {
+    const { userId, email } = options;
+
+    await this.usersRepository.updateOne(
+      {
+        userId,
+        email,
+      },
+      {
+        accessToken: null,
+        refreshToken: null,
+      },
+    );
+  }
+
+  async getMe(options: GetUserDataResponse): Promise<UserGetOneResponse> {
+    const { userId, email } = options;
     return this.usersRepository.findOne({
-      select: [
-        'userId',
-        'firstname',
-        'lastname',
-        'email',
-        'phone',
-        'createdDate',
-        'updatedDate',
-      ],
+      select: ['userId', 'firstname', 'lastname', 'email', 'phone'],
       where: {
         userId,
+        email,
       },
     });
   }
 
-  async delete(options: UserDeleteOptions): Promise<void> {
-    const { email, identityId } = options;
-    const transaction = await useTransaction(this.dataSource);
+  private async provideJwtTokens(options: {
+    userId: string;
+    email: string;
+  }): Promise<JwtTokens> {
+    const { userId, email } = options;
+    const { accessToken, refreshToken } = await this.authService.signUserTokens(
+      {
+        userId,
+        email,
+      },
+    );
 
-    try {
-      const identity = await this.identitiesRepository.findOne({
-        where: {
-          identityId,
-        },
-      });
+    await this.usersRepository.updateOne(
+      {
+        userId,
+      },
+      {
+        accessToken,
+        refreshToken,
+      },
+    );
 
-      await this.authService.deleteUser(identity.cognitoUserId);
-      await this.usersRepository.deleteOne(email, transaction.manager);
-      await this.identitiesRepository.deleteOne(
-        identityId,
-        transaction.manager,
-      );
-
-      await useCommitTransaction(transaction);
-    } catch (error) {
-      await useRollbackTransaction(transaction);
-
-      throw error;
-    } finally {
-      await useReleaseTransaction(transaction);
-    }
+    return {
+      accessToken,
+      refreshToken,
+    };
   }
 }

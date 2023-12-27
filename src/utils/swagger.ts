@@ -1,10 +1,12 @@
 import { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 
+import { SWAGGER_API } from '../constants/routes';
+
 export function applySwagger(app: INestApplication): void {
   const options = new DocumentBuilder()
-    .setTitle('TMH API')
-    .setDescription('Take me home API')
+    .setTitle('Auth API')
+    .setDescription('Impulse testing auth API')
     .setVersion('0.0.1')
     .addBearerAuth(
       {
@@ -20,5 +22,5 @@ export function applySwagger(app: INestApplication): void {
     .build();
   const document = SwaggerModule.createDocument(app, options);
 
-  SwaggerModule.setup('api/swagger', app, document);
+  SwaggerModule.setup(SWAGGER_API, app, document);
 }

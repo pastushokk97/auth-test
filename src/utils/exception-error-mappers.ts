@@ -1,6 +1,7 @@
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiResponseOptions,
 } from '@nestjs/swagger';
@@ -46,6 +47,12 @@ export const api4xxDecoratorMap: Record<number, Api4xxDecoratorOptions> = {
     defaultDescription: `BadRequest <p> 
       Some of the request inputs were not valid. 
       Check the response body for error details and see error messages.`,
+  },
+  403: {
+    apiResponse: ApiForbiddenResponse,
+    name: 'ForbiddenException',
+    defaultDescription: `Forbidden <p> 
+      Make sure you have a permission to provided resource`,
   },
   404: {
     apiResponse: ApiNotFoundResponse,

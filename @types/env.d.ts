@@ -12,11 +12,10 @@ namespace NodeJS {
     APP_CONTAINER_NAME: string;
     APPLICATION_PORT: string;
     POSTGRES_CONTAINER_NAME: string;
-    AWS_REGION: string;
-    AWS_USER_POOL_ID: string;
-    AWS_CLIENT_ID: string;
     HASH_SALT: string;
-    AWS_ACCESS_KEY_ID: string;
-    AWS_SECRET_ACCESS_KEY: string;
+    JWT_SECRET: string;
+    JWT_EXPIRES_IN_ACCESS_TOKEN: string;
+    JWT_EXPIRES_IN_REFRESH_TOKEN: string;
+    JWT_PRIVATE_KEY: string;
   }
 }

@@ -9,6 +9,7 @@ export const globalValidationPipe = new ValidationPipe({
   forbidUnknownValues: true,
   transform: true,
   stopAtFirstError: true,
+  validateCustomDecorators: true,
   exceptionFactory(errors): ValidationException {
     const errs = mapValidationErrors(errors);
 

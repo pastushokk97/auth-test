@@ -14,13 +14,13 @@ export class UserValidatorService {
   constructor(private readonly usersRepository: UsersRepository) {}
 
   async validateUserOnCreate(options: UserCreateOptions): Promise<boolean> {
-    const isRegistered = await this.usersRepository.exist({
+    const isEmailRegistered = await this.usersRepository.exist({
       where: {
         email: options.email,
       },
     });
 
-    if (isRegistered) {
+    if (isEmailRegistered) {
       throw new ConflictException(
         VALIDATION_ERROR_CONTEXT.USER_IS_ALREADY_EXISTS,
       );
@@ -34,7 +34,6 @@ export class UserValidatorService {
     const user = await this.usersRepository.findOne({
       where: {
         email,
-        isEmailVerified: true,
       },
     });
 

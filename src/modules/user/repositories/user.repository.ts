@@ -1,15 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DeleteResult, EntityManager, Repository } from 'typeorm';
+import { EntityManager, FindOptionsWhere, Repository } from 'typeorm';
 
 import { DATABASE_ERROR_CONTEXT, DatabaseException } from '../../../exceptions';
 import { UserEntity } from '../entities/user.entity';
-import { UserCreateOptionsDB } from '../types/user.type';
+import { UserCreateOptions } from '../types/user.type';
 
 @Injectable()
 export class UsersRepository extends Repository<UserEntity> {
-  private readonly logger = new Logger(UsersRepository.name);
-
   constructor(
     @InjectRepository(UserEntity)
     private readonly repository: Repository<UserEntity>,
@@ -18,11 +16,14 @@ export class UsersRepository extends Repository<UserEntity> {
   }
 
   async createOne(
-    opts: UserCreateOptionsDB,
-    manager: EntityManager,
+    opts: UserCreateOptions,
+    manager?: EntityManager,
   ): Promise<UserEntity> {
     try {
-      return await manager.save(UserEntity, opts);
+      if (manager) {
+        return await manager.save(UserEntity, opts);
+      }
+      return await this.save(opts);
     } catch (error) {
       throw new DatabaseException(
         error,
@@ -31,16 +32,20 @@ export class UsersRepository extends Repository<UserEntity> {
     }
   }
 
-  async deleteOne(
-    email: string,
-    manager: EntityManager,
-  ): Promise<DeleteResult> {
+  async updateOne(
+    criteria: FindOptionsWhere<UserEntity>,
+    options: Partial<UserEntity>,
+    manager?: EntityManager,
+  ): Promise<void> {
     try {
-      return await manager.delete(UserEntity, { email });
+      if (manager) {
+        await manager.update(UserEntity, criteria, options);
+      }
+      await this.update({ ...criteria }, options);
     } catch (error) {
       throw new DatabaseException(
         error,
-        DATABASE_ERROR_CONTEXT.USER_INSERT_ONE_ERROR,
+        DATABASE_ERROR_CONTEXT.USER_UPDATE_ONE_ERROR,
       );
     }
   }

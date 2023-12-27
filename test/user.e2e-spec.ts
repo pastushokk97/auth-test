@@ -13,18 +13,13 @@ import {
 } from '../src/constants/tests';
 import { globalExceptionFilters } from '../src/exceptions';
 import { AuthModule } from '../src/modules/auth/auth.module';
-import { AuthService } from '../src/modules/auth/auth.service';
-import { JwtPayload } from '../src/modules/auth/types/auth.types';
 import { CommonModule } from '../src/modules/common/common.module';
 import { UserLoginDTO } from '../src/modules/user/dto/user-login.dto';
 import { UserSignUpDTO } from '../src/modules/user/dto/user-sign-up.dto';
-import { UserVerifyDTO } from '../src/modules/user/dto/user-verify.dto';
-import { IdentityEntity } from '../src/modules/user/entities/identity.entity';
 import { UserEntity } from '../src/modules/user/entities/user.entity';
 import { UserModule } from '../src/modules/user/user.module';
 import { hashPassword } from '../src/utils/hash-password';
 
-import { AuthServiceMock } from './utils/auth-service.mock';
 import { mockLogger } from './utils/logger.mock';
 
 function createLongString(length: number): string {
@@ -37,24 +32,18 @@ function createLongString(length: number): string {
   return str;
 }
 
-let decode: jest.Mock<Pick<JwtPayload, 'username'>>;
+const JWT_MATCH_REGEX = /^[\w-]+\.[\w-]+\.[\w-]+$/;
 
 describe('UserController (e2e)', () => {
   let app: INestApplication;
   let entityManager: EntityManager;
   let server: HttpServer;
+  let jwtService: JwtService;
 
   beforeAll(async () => {
-    decode = jest.fn<Pick<JwtPayload, 'username'>, [string]>();
-
     const moduleFixture = await Test.createTestingModule({
       imports: [CommonModule.forTest(), AuthModule, UserModule],
-    })
-      .overrideProvider(JwtService)
-      .useValue({ decode })
-      .overrideProvider(AuthService)
-      .useClass(AuthServiceMock)
-      .compile();
+    }).compile();
 
     app = moduleFixture
       .createNestApplication()
@@ -64,6 +53,7 @@ describe('UserController (e2e)', () => {
     app.useLogger(mockLogger);
 
     entityManager = app.get(EntityManager);
+    jwtService = app.get(JwtService);
     server = app.getHttpServer();
 
     useContainer(app.select(UserModule), { fallbackOnErrors: true });
@@ -75,7 +65,6 @@ describe('UserController (e2e)', () => {
   });
 
   afterAll(async () => {
-    await entityManager.delete(IdentityEntity, {});
     await entityManager.delete(UserEntity, {});
 
     await app.close();
@@ -257,7 +246,7 @@ describe('UserController (e2e)', () => {
         expect(response.status).toStrictEqual(HttpStatus.BAD_REQUEST);
       });
 
-      it('should return 400 if password is string', async () => {
+      it('should return 400 if password is not string', async () => {
         const response = await request(server)
           .post('/api/user/sign-up')
           .send({ ...simpleBody, password: 123 });
@@ -295,11 +284,7 @@ describe('UserController (e2e)', () => {
 
     describe(FAIL_CASES, () => {
       beforeEach(async () => {
-        const identity = await entityManager.save(IdentityEntity, {
-          cognitoUserId: '82489396-3f6c-4083-b649-4501ce92785e',
-        });
         await entityManager.save(UserEntity, {
-          identityId: identity.identityId,
           firstname: 'Jacob',
           lastname: 'Thunder',
           email: 'some-email@gmail.com',
@@ -355,7 +340,9 @@ describe('UserController (e2e)', () => {
         expect(user.phone).toBe(simpleBody.phone);
         expect(user.password).not.toBeNull();
         expect(user.password).not.toBe(simpleBody.password);
-        expect(user.createdDate).not.toBeNull();
+        expect(user.accessToken).toBeNull();
+        expect(user.refreshToken).toBeNull();
+        expect(response.body).toStrictEqual({});
         expect(response.status).toStrictEqual(HttpStatus.CREATED);
       });
     });
@@ -403,7 +390,7 @@ describe('UserController (e2e)', () => {
         expect(response.status).toStrictEqual(HttpStatus.BAD_REQUEST);
       });
 
-      it('should return 400 if password is string', async () => {
+      it('should return 400 if password is not string', async () => {
         const response = await request(server)
           .post('/api/user/login')
           .send({ ...simpleBody, password: 123 });
@@ -442,17 +429,13 @@ describe('UserController (e2e)', () => {
     describe(FAIL_CASES, () => {
       beforeEach(async () => {
         const password = await hashPassword('somePassword$');
-        const identity = await entityManager.save(IdentityEntity, {
-          cognitoUserId: '82489396-3f6c-4083-b649-4501ce92785e',
-        });
+
         await entityManager.save(UserEntity, {
-          identityId: identity.identityId,
           firstname: 'Bob',
           lastname: 'Marcos',
           email: 'nefimag320@wlmycn.com',
           phone: '+380677777777',
           password,
-          isEmailVerified: true,
         });
       });
 
@@ -478,7 +461,7 @@ describe('UserController (e2e)', () => {
         expect(response.status).toStrictEqual(HttpStatus.NOT_FOUND);
       });
 
-      it('should return 404 in case if password is not the same', async () => {
+      it('should return 404 in case if password is not correct', async () => {
         const response = await request(server)
           .post('/api/user/login')
           .send({
@@ -502,17 +485,13 @@ describe('UserController (e2e)', () => {
     describe(SUCCESS_CASES, () => {
       beforeEach(async () => {
         const password = await hashPassword('somePassword$');
-        const identity = await entityManager.save(IdentityEntity, {
-          cognitoUserId: '82489396-3f6c-4083-b649-4501ce92785e',
-        });
+
         await entityManager.save(UserEntity, {
-          identityId: identity.identityId,
           firstname: 'Bob',
           lastname: 'Marcos',
           email: 'registered-email-valid@gmail.com',
           phone: '+380677777777',
           password,
-          isEmailVerified: true,
         });
       });
 
@@ -533,40 +512,35 @@ describe('UserController (e2e)', () => {
           'registered-email-valid@gmail.com',
         );
         expect(response.body.password).toBeUndefined();
-        expect(response.body.jwtToken).toBe('JWT_TOKEN_AUTHORIZED');
-        expect(response.body.refreshToken).toBe('JWT_REFRESH_TOKEN_AUTHORIZED');
+        expect(response.body.accessToken).toMatch(JWT_MATCH_REGEX);
+        expect(response.body.refreshToken).toMatch(JWT_MATCH_REGEX);
         expect(response.status).toStrictEqual(HttpStatus.CREATED);
       });
     });
   });
 
-  describe('GET /api/user/:userId', () => {
-    let user: UserEntity;
-
-    beforeEach(async () => {
-      const password = await hashPassword('somePassword$');
-      const identity = await entityManager.save(IdentityEntity, {
-        cognitoUserId: '82489396-3f6c-4083-b649-4501ce92785e',
-      });
-      user = await entityManager.save(UserEntity, {
-        identityId: identity.identityId,
-        firstname: 'Bob',
-        lastname: 'Marcos',
-        email: 'sobopix183@trazeco.com',
-        phone: '+380677777777',
-        password,
-      });
-    });
-
-    afterEach(async () => {
-      await entityManager.delete(UserEntity, {
-        email: 'sobopix183@trazeco.com',
-      });
-    });
-
+  describe('POST /api/user/refresh-token', () => {
     describe(VALIDATION_ERROR_CASES, () => {
-      it('should return 400 in case of userId is not uuid', async () => {
-        const response = await request(server).get('/api/user/not-uuid');
+      it('should return 400 if refresh token is not provided is not string', async () => {
+        const response = await request(server).post('/api/user/refresh-token');
+
+        expect(response.body).toEqual(
+          expect.objectContaining({
+            statusCode: HttpStatus.BAD_REQUEST,
+            errors: expect.arrayContaining([
+              expect.objectContaining({ errorCode: 11001 }),
+            ]),
+          }),
+        );
+        expect(response.status).toStrictEqual(HttpStatus.BAD_REQUEST);
+      });
+
+      it('should return 400 if refresh token is not jwt', async () => {
+        const response = await request(server)
+          .post('/api/user/refresh-token')
+          .set({
+            Authorization: 'INVALID_JWT_TOKEN',
+          });
 
         expect(response.body).toEqual(
           expect.objectContaining({
@@ -580,198 +554,128 @@ describe('UserController (e2e)', () => {
       });
     });
 
-    describe(SUCCESS_CASES, () => {
-      it('should return 200 and empty body if user is not exists', async () => {
-        const response = await request(server).get(
-          `/api/user/dcafdddd-2e1e-44fd-b35d-ac2eea5830b3`,
-        );
-
-        expect(response.body).toStrictEqual({});
-        expect(response.status).toStrictEqual(HttpStatus.OK);
-      });
-
-      it('should return 200 and user', async () => {
-        const response = await request(server).get(`/api/user/${user.userId}`);
-
-        expect(response.body.userId).toStrictEqual(user.userId);
-        expect(response.body.firstname).toStrictEqual(user.firstname);
-        expect(response.body.lastname).toStrictEqual(user.lastname);
-        expect(response.body.phone).toStrictEqual(user.phone);
-        expect(response.body.email).toStrictEqual(user.email);
-        expect(response.body.createdDate).toStrictEqual(user.createdDate);
-        expect(response.body.updatedDate).toBeNull();
-        expect(response.body.password).toBeUndefined();
-        expect(response.status).toStrictEqual(HttpStatus.OK);
-      });
-    });
-  });
-
-  describe('POST /api/user/verify', () => {
-    const simpleBody: UserVerifyDTO = {
-      email: 'verified-email-valid@gmail.com',
-      verificationCode: '123456',
-    };
-
-    describe(VALIDATION_ERROR_CASES, () => {
-      it('should return 400 if email is not valid', async () => {
-        const response = await request(server)
-          .post('/api/user/verify')
-          .send({ ...simpleBody, email: 'some-email' });
-
-        expect(response.body).toEqual(
-          expect.objectContaining({
-            statusCode: HttpStatus.BAD_REQUEST,
-            errors: expect.arrayContaining([
-              expect.objectContaining({ errorCode: 10004 }),
-            ]),
-          }),
-        );
-        expect(response.status).toStrictEqual(HttpStatus.BAD_REQUEST);
-      });
-
-      it('should return 400 if email length is bigger than 96', async () => {
-        const response = await request(server)
-          .post('/api/user/verify')
-          .send({
-            ...simpleBody,
-            email: `${createLongString(97)}@gmail.com`,
-          });
-
-        expect(response.body).toEqual(
-          expect.objectContaining({
-            statusCode: HttpStatus.BAD_REQUEST,
-            errors: expect.arrayContaining([
-              expect.objectContaining({ errorCode: 10004 }),
-            ]),
-          }),
-        );
-        expect(response.status).toStrictEqual(HttpStatus.BAD_REQUEST);
-      });
-
-      it('should return 400 if verificationCode length is bigger than 6', async () => {
-        const response = await request(server)
-          .post('/api/user/verify')
-          .send({
-            ...simpleBody,
-            verificationCode: '1234567',
-          });
-
-        expect(response.body).toEqual(
-          expect.objectContaining({
-            statusCode: HttpStatus.BAD_REQUEST,
-            errors: expect.arrayContaining([
-              expect.objectContaining({ errorCode: 10010 }),
-            ]),
-          }),
-        );
-        expect(response.status).toStrictEqual(HttpStatus.BAD_REQUEST);
-      });
-
-      it('should return 400 if verificationCode length is less than 6', async () => {
-        const response = await request(server)
-          .post('/api/user/verify')
-          .send({
-            ...simpleBody,
-            verificationCode: '12345',
-          });
-
-        expect(response.body).toEqual(
-          expect.objectContaining({
-            statusCode: HttpStatus.BAD_REQUEST,
-            errors: expect.arrayContaining([
-              expect.objectContaining({ errorCode: 10010 }),
-            ]),
-          }),
-        );
-        expect(response.status).toStrictEqual(HttpStatus.BAD_REQUEST);
-      });
-
-      it('should return 400 if verificationCode is not string', async () => {
-        const response = await request(server)
-          .post('/api/user/verify')
-          .send({
-            ...simpleBody,
-            verificationCode: 12345,
-          });
-
-        expect(response.body).toEqual(
-          expect.objectContaining({
-            statusCode: HttpStatus.BAD_REQUEST,
-            errors: expect.arrayContaining([
-              expect.objectContaining({ errorCode: 10010 }),
-            ]),
-          }),
-        );
-        expect(response.status).toStrictEqual(HttpStatus.BAD_REQUEST);
-      });
-    });
-
     describe(FAIL_CASES, () => {
-      it('should return 409 if verificationCode has expired', async () => {
-        const response = await request(server)
-          .post('/api/user/verify')
-          .send({
-            ...simpleBody,
-            email: 'non-verified-email-valid@gmail.com',
-            verificationCode: '654321',
-          });
-
-        expect(response.body).toEqual(
-          expect.objectContaining({
-            statusCode: HttpStatus.CONFLICT,
-            errors: expect.arrayContaining([
-              expect.objectContaining({ errorCode: 10009 }),
-            ]),
-          }),
-        );
-        expect(response.status).toStrictEqual(HttpStatus.CONFLICT);
-      });
-    });
-
-    describe(SUCCESS_CASES, () => {
       beforeEach(async () => {
-        const password = await hashPassword('somePassword$');
-        const identity = await entityManager.save(IdentityEntity, {
-          cognitoUserId: '2aee88db-3f06-4436-a1e6-fda0ccd8dbdb',
-        });
+        const password = await hashPassword('somePassword1235$');
+
         await entityManager.save(UserEntity, {
-          identityId: identity.identityId,
+          userId: '1deb0a0d-ab73-4429-b0af-fce57d65015e',
           firstname: 'Bob',
           lastname: 'Marcos',
-          email: 'verified-email-valid@gmail.com',
+          email: 'sobopix185@trazeco.com',
           phone: '+380677777777',
           password,
-          isEmailVerified: true,
         });
       });
 
       afterEach(async () => {
         await entityManager.delete(UserEntity, {
-          email: 'verified-email-valid@gmail.com',
+          email: 'sobopix185@trazeco.com',
         });
       });
 
-      it('should return 201 and verify user', async () => {
+      it('should return 403 if refresh token is not possessed to user', async () => {
+        const jwtToken = jwtService.sign({
+          userId: 'cf3c0aba-b105-43cf-a949-f9e864c8ee38',
+          email: 'some-email@gmail.com',
+        });
         const response = await request(server)
-          .post('/api/user/verify')
-          .send(simpleBody);
+          .post('/api/user/refresh-token')
+          .set({
+            Authorization: jwtToken,
+          });
 
-        const user = await entityManager.findOne(UserEntity, {
+        expect(response.body).toEqual(
+          expect.objectContaining({
+            statusCode: HttpStatus.FORBIDDEN,
+            errors: expect.arrayContaining([
+              expect.objectContaining({ errorCode: 10009 }),
+            ]),
+          }),
+        );
+        expect(response.status).toStrictEqual(HttpStatus.FORBIDDEN);
+      });
+
+      it('should return 403 if user signed out', async () => {
+        const jwtToken = jwtService.sign({
+          userId: '1deb0a0d-ab73-4429-b0af-fce57d65015e',
+          email: 'sobopix185@trazeco.com',
+        });
+
+        const response = await request(server)
+          .post('/api/user/refresh-token')
+          .set({
+            Authorization: jwtToken,
+          });
+
+        expect(response.body).toEqual(
+          expect.objectContaining({
+            statusCode: HttpStatus.FORBIDDEN,
+            errors: expect.arrayContaining([
+              expect.objectContaining({ errorCode: 10009 }),
+            ]),
+          }),
+        );
+        expect(response.status).toStrictEqual(HttpStatus.FORBIDDEN);
+      });
+    });
+
+    describe(SUCCESS_CASES, () => {
+      let user: UserEntity;
+      let jwtToken: string;
+
+      beforeEach(async () => {
+        const password = await hashPassword('somePassword123$');
+
+        jwtToken = jwtService.sign({
+          userId: '4d35e16c-1a62-42fa-a9f1-fe8078dc4f82',
+          email: 'sobopix184@trazeco.com',
+        });
+
+        user = await entityManager.save(UserEntity, {
+          userId: '4d35e16c-1a62-42fa-a9f1-fe8078dc4f82',
+          firstname: 'Bob',
+          lastname: 'Marcos',
+          email: 'sobopix184@trazeco.com',
+          phone: '+380677777777',
+          password,
+          accessToken: 'TOKEN_HAS_BEEN_EXPIRED',
+          refreshToken: jwtToken,
+        });
+      });
+
+      afterEach(async () => {
+        await entityManager.delete(UserEntity, {
+          email: 'sobopix184@trazeco.com',
+        });
+      });
+
+      it('should return 201 and create new tokens for the user', async () => {
+        const response = await request(server)
+          .post('/api/user/refresh-token')
+          .set({
+            Authorization: jwtToken,
+          });
+
+        const updatedUser = await entityManager.findOne(UserEntity, {
           where: {
-            email: 'verified-email-valid@gmail.com',
+            email: user.email,
           },
         });
 
-        expect(user.isEmailVerified).toBeTruthy();
+        expect(response.body.accessToken).toMatch(JWT_MATCH_REGEX);
+        expect(response.body.refreshToken).toMatch(JWT_MATCH_REGEX);
+        expect(response.body.accessToken).toBe(updatedUser.accessToken);
+        expect(response.body.refreshToken).toBe(updatedUser.refreshToken);
         expect(response.status).toStrictEqual(HttpStatus.CREATED);
       });
     });
   });
 
-  describe('DELETE /api/v1/user', () => {
+  describe('POST api/user/sign-out', () => {
     describe(FAIL_CASES, () => {
-      it('should return 403 in case if auth header is not set', async () => {
-        const response = await request(server).delete('/api/user');
+      it('should return 403 if auth token is not provided', async () => {
+        const response = await request(server).post('/api/user/sign-out');
 
         expect(response.body).toEqual(
           expect.objectContaining({
@@ -784,10 +688,9 @@ describe('UserController (e2e)', () => {
         expect(response.status).toStrictEqual(HttpStatus.FORBIDDEN);
       });
 
-      it('should return 403 in case if auth header is invalid', async () => {
-        decode.mockReturnValue({ username: 'INVALID_JWT' });
-        const response = await request(server).delete('/api/user').set({
-          Authorization: 'Bearer INVALID_JWT',
+      it('should return 403 if token is not jwt', async () => {
+        const response = await request(server).post('/api/user/sign-out').set({
+          Authorization: 'INVALID_TOKEN',
         });
 
         expect(response.body).toEqual(
@@ -801,12 +704,31 @@ describe('UserController (e2e)', () => {
         expect(response.status).toStrictEqual(HttpStatus.FORBIDDEN);
       });
 
-      it('should return 404 in case if user not found', async () => {
-        decode.mockReturnValue({
-          username: 'd6f98e63-31b3-4314-be1a-ff33dd07ddf7',
+      it('should return 403 if token has been expired', async () => {
+        const EXPIRED_TOKEN =
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZDlhZjJiMC03ZWIxLTQyZDgtYjAwMS05ZjIxYzYxY2I5MzEiLCJlbWFpbCI6ImVtYWlsLXZhbGlkQGdtYWlsLmNvbSIsImlhdCI6MTcwMzY3NDkzOCwiZXhwIjoxNzAzNjc0OTM5fQ.ooOMpkPbNmdznMLCdRMnfBdgUFRdRJKBxrYmF1VRFeg';
+        const response = await request(server).post('/api/user/sign-out').set({
+          Authorization: EXPIRED_TOKEN,
         });
-        const response = await request(server).delete('/api/user').set({
-          Authorization: 'Bearer VALID_JWT',
+
+        expect(response.body).toEqual(
+          expect.objectContaining({
+            statusCode: HttpStatus.FORBIDDEN,
+            errors: expect.arrayContaining([
+              expect.objectContaining({ errorCode: 11003 }),
+            ]),
+          }),
+        );
+        expect(response.status).toStrictEqual(HttpStatus.FORBIDDEN);
+      });
+
+      it('should return 404 if user not found', async () => {
+        const jwtToken = jwtService.sign({
+          userId: '6e1493c2-85c4-4053-82f9-fca17844e43d',
+          email: 'email-not-found@gmail.com',
+        });
+        const response = await request(server).post('/api/user/sign-out').set({
+          Authorization: jwtToken,
         });
 
         expect(response.body).toEqual(
@@ -822,47 +744,166 @@ describe('UserController (e2e)', () => {
     });
 
     describe(SUCCESS_CASES, () => {
+      let user: UserEntity;
+      let jwtToken: string;
+
       beforeEach(async () => {
-        const password = await hashPassword('somePassword$');
-        const identity = await entityManager.save(IdentityEntity, {
-          cognitoUserId: '969a2c1a-c09e-4a2e-9c73-482720300bc2',
+        const password = await hashPassword('somePassword90$');
+
+        jwtToken = jwtService.sign({
+          userId: '6e10cef9-7404-4872-a90b-19e853fd6a18',
+          email: 'sobopix181@trazeco.com',
         });
-        await entityManager.save(UserEntity, {
-          identityId: identity.identityId,
+
+        user = await entityManager.save(UserEntity, {
+          userId: '6e10cef9-7404-4872-a90b-19e853fd6a18',
           firstname: 'Bob',
           lastname: 'Marcos',
-          email: 'registered-email-valid@gmail.com',
+          email: 'sobopix181@trazeco.com',
           phone: '+380677777777',
           password,
-          isEmailVerified: true,
+          accessToken: jwtToken,
+          refreshToken: 'REFRESH_TOKEN',
         });
       });
 
       afterEach(async () => {
         await entityManager.delete(UserEntity, {
-          email: 'registered-email-valid@gmail.com',
+          email: 'sobopix181@trazeco.com',
         });
       });
 
-      it('should return 204 and delete user', async () => {
-        decode.mockReturnValue({
-          username: '969a2c1a-c09e-4a2e-9c73-482720300bc2',
-        });
-        const response = await request(server).delete('/api/user').set({
-          Authorization: 'Bearer VALID_JWT',
+      it('should return 201 and sign out user', async () => {
+        const response = await request(server).post('/api/user/sign-out').set({
+          Authorization: jwtToken,
         });
 
-        const identity = await entityManager.findOne(IdentityEntity, {
-          where: { cognitoUserId: '969a2c1a-c09e-4a2e-9c73-482720300bc2' },
-        });
-        const user = await entityManager.findOne(UserEntity, {
-          where: { email: 'registered-email-valid@gmail.com' },
+        const updatedUser = await entityManager.findOne(UserEntity, {
+          where: {
+            email: user.email,
+          },
         });
 
         expect(response.body).toStrictEqual({});
-        expect(identity).toBeNull();
-        expect(user).toBeNull();
-        expect(response.status).toStrictEqual(HttpStatus.NO_CONTENT);
+        expect(updatedUser.accessToken).toBeNull();
+        expect(updatedUser.refreshToken).toBeNull();
+        expect(response.status).toStrictEqual(HttpStatus.CREATED);
+      });
+    });
+  });
+
+  describe('GET api/user/me', () => {
+    describe(FAIL_CASES, () => {
+      it('should return 403 if auth token is not provided', async () => {
+        const response = await request(server).get('/api/user/me');
+
+        expect(response.body).toEqual(
+          expect.objectContaining({
+            statusCode: HttpStatus.FORBIDDEN,
+            errors: expect.arrayContaining([
+              expect.objectContaining({ errorCode: 11001 }),
+            ]),
+          }),
+        );
+        expect(response.status).toStrictEqual(HttpStatus.FORBIDDEN);
+      });
+
+      it('should return 403 if token is not jwt', async () => {
+        const response = await request(server).get('/api/user/me').set({
+          Authorization: 'INVALID_TOKEN',
+        });
+
+        expect(response.body).toEqual(
+          expect.objectContaining({
+            statusCode: HttpStatus.FORBIDDEN,
+            errors: expect.arrayContaining([
+              expect.objectContaining({ errorCode: 11002 }),
+            ]),
+          }),
+        );
+        expect(response.status).toStrictEqual(HttpStatus.FORBIDDEN);
+      });
+
+      it('should return 403 if token has been expired', async () => {
+        const EXPIRED_TOKEN =
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJkZDlhZjJiMC03ZWIxLTQyZDgtYjAwMS05ZjIxYzYxY2I5MzEiLCJlbWFpbCI6ImVtYWlsLXZhbGlkQGdtYWlsLmNvbSIsImlhdCI6MTcwMzY3NDkzOCwiZXhwIjoxNzAzNjc0OTM5fQ.ooOMpkPbNmdznMLCdRMnfBdgUFRdRJKBxrYmF1VRFeg';
+        const response = await request(server).get('/api/user/me').set({
+          Authorization: EXPIRED_TOKEN,
+        });
+
+        expect(response.body).toEqual(
+          expect.objectContaining({
+            statusCode: HttpStatus.FORBIDDEN,
+            errors: expect.arrayContaining([
+              expect.objectContaining({ errorCode: 11003 }),
+            ]),
+          }),
+        );
+        expect(response.status).toStrictEqual(HttpStatus.FORBIDDEN);
+      });
+
+      it('should return 404 if user not found', async () => {
+        const jwtToken = jwtService.sign({
+          userId: '6e1493c2-85c4-4053-82f9-fca17844e43d',
+          email: 'email-not-found@gmail.com',
+        });
+        const response = await request(server).get('/api/user/me').set({
+          Authorization: jwtToken,
+        });
+
+        expect(response.body).toEqual(
+          expect.objectContaining({
+            statusCode: HttpStatus.NOT_FOUND,
+            errors: expect.arrayContaining([
+              expect.objectContaining({ errorCode: 10007 }),
+            ]),
+          }),
+        );
+        expect(response.status).toStrictEqual(HttpStatus.NOT_FOUND);
+      });
+    });
+
+    describe(SUCCESS_CASES, () => {
+      let user: UserEntity;
+      let jwtToken: string;
+
+      beforeEach(async () => {
+        const password = await hashPassword('somePassword90$');
+
+        jwtToken = jwtService.sign({
+          userId: '6e10cef9-7404-4872-a90b-19e853fd6a18',
+          email: 'sobopix170@trazeco.com',
+        });
+
+        user = await entityManager.save(UserEntity, {
+          userId: '6e10cef9-7404-4872-a90b-19e853fd6a18',
+          firstname: 'Bob',
+          lastname: 'Marcos',
+          email: 'sobopix170@trazeco.com',
+          phone: '+380677777777',
+          password,
+          accessToken: jwtToken,
+          refreshToken: 'REFRESH_TOKEN',
+        });
+      });
+
+      afterEach(async () => {
+        await entityManager.delete(UserEntity, {
+          email: 'sobopix170@trazeco.com',
+        });
+      });
+
+      it('should return 201 and sign out user', async () => {
+        const response = await request(server).get('/api/user/me').set({
+          Authorization: jwtToken,
+        });
+
+        expect(response.body.email).toStrictEqual(user.email);
+        expect(response.body.userId).toStrictEqual(user.userId);
+        expect(response.body.phone).toStrictEqual(user.phone);
+        expect(response.body.firstname).toStrictEqual(user.firstname);
+        expect(response.body.lastname).toStrictEqual(user.lastname);
+        expect(response.status).toStrictEqual(HttpStatus.OK);
       });
     });
   });

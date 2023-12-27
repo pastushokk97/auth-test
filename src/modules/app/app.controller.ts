@@ -1,4 +1,4 @@
-import { Controller, Get, Logger } from '@nestjs/common';
+import { Controller, Get } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 
 import { APP } from '../../constants/tags';
@@ -9,8 +9,6 @@ import { GetHelloWorldDocumentation } from './swagger/get-hello-world-documentat
 @ApiTags(APP)
 @Controller()
 export class AppController {
-  private readonly logger = new Logger(AppController.name);
-
   constructor(private readonly appService: AppService) {}
 
   @GetHelloWorldDocumentation()
